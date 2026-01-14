@@ -20,10 +20,10 @@ services:
 
   # Mikroservisler (ACR'den geliyor)
   ml-service:
-    image: airlineproject.azurecr.io/ml-service:demo
+    image: airlineproject.azurecr.io/ml-service:latest
 
   flight-service:
-    image: airlineproject.azurecr.io/flight-service:demo
+    image: airlineproject.azurecr.io/flight-service:latest
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
       SPRING_DATASOURCE_USERNAME: airline
@@ -34,13 +34,13 @@ services:
       SPRING_PROFILES_ACTIVE: docker
 
   notification-service:
-    image: airlineproject.azurecr.io/notification-service:demo
+    image: airlineproject.azurecr.io/notification-service:latest
     environment:
       RABBITMQ_HOST: rabbitmq
       SPRING_PROFILES_ACTIVE: docker
 
   scheduler-service:
-    image: airlineproject.azurecr.io/scheduler-service:demo
+    image: airlineproject.azurecr.io/scheduler-service:latest
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
       FLIGHT_SERVICE_URL: http://flight-service:8081
@@ -48,7 +48,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
 
   api-gateway:
-    image: airlineproject.azurecr.io/api-gateway:demo
+    image: airlineproject.azurecr.io/api-gateway:latest
     environment:
       FLIGHT_SERVICE_URL: http://flight-service:8081
       NOTIFICATION_SERVICE_URL: http://notification-service:8082
@@ -57,7 +57,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
 
   frontend:
-    image: airlineproject.azurecr.io/frontend:demo
+    image: airlineproject.azurecr.io/frontend:latest
     ports:
       - "80:80" # Azure bu servisi dışarı açacak
     depends_on:
