@@ -35,7 +35,7 @@ spring:
     host: smtp.gmail.com
     port: 587
     username: basarozkasli@gmail.com
-    password: ${SMTP_PASSWORD:your_app_password_here}
+    password: eyumehwbcsygehaw
     properties:
       mail:
         smtp:
@@ -43,6 +43,8 @@ spring:
           starttls:
             enable: true
             required: true
+          ssl:
+            trust: "*"
           connectiontimeout: 5000
           timeout: 5000
           writetimeout: 5000
@@ -54,6 +56,21 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+    # Don't fail on startup if RabbitMQ is unavailable
+    listener:
+      simple:
+        auto-startup: true
+        default-requeue-rejected: false
+        acknowledge-mode: auto
+    # Connection retry configuration
+    connection-timeout: 10000
+    template:
+      retry:
+        enabled: true
+        initial-interval: 1000
+        max-attempts: 3
+        max-interval: 10000
+        multiplier: 1.2
 
 # Flight Service URL for REST calls
 flight-service:

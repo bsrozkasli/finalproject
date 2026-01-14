@@ -4,14 +4,17 @@ import AirportAutocomplete from '../components/AirportAutocomplete';
 import DatePicker from 'react-datepicker';
 import "react-datepicker/dist/react-datepicker.css";
 import { format } from 'date-fns';
+import { isAdmin } from '../utils/jwtUtils';
 
 function AdminPage() {
-    const { isAuthenticated, getAccessTokenSilently } = useAuth0();
+    const { isAuthenticated, getAccessTokenSilently, getIdTokenClaims, user } = useAuth0();
     const [loading, setLoading] = useState(false);
     const [predicting, setPredicting] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(false);
     const [predictedPrice, setPredictedPrice] = useState(null);
+    const [isAdmin, setIsAdmin] = useState(false);
+    const [checkingAccess, setCheckingAccess] = useState(true);
 
     const [flightData, setFlightData] = useState({
         code: '',
@@ -25,14 +28,82 @@ function AdminPage() {
     });
 
     useEffect(() => {
-        if (!isAuthenticated) {
-            setError('Please login to access admin panel');
-        }
-    }, [isAuthenticated]);
+        const checkAdminAccess = async () => {
+            setCheckingAccess(true);
+            if (!isAuthenticated) {
+                setError('Please login to access admin panel');
+                setIsAdmin(false);
+                setCheckingAccess(false);
+                return;
+            }
+
+            try {
+                // Get Auth0 domain from environment (for role namespace lookup)
+                const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN?.replace('https://', '').replace('http://', '') || null;
+
+                // Get access token (scopes are usually in access token)
+                const accessToken = await getAccessTokenSilently({
+                    authorizationParams: {
+                        audience: 'https://api.airline.com'
+                    }
+                }).catch(() => null);
+
+                // Get ID token (roles are usually in ID token in Auth0)
+                const idTokenClaims = await getIdTokenClaims().catch(() => null);
+
+                let adminCheck = false;
+
+                // Admin email list - users with these emails get admin access
+                const adminEmails = ['admin@gmail.com'];
+                const userEmail = idTokenClaims?.email || user?.email || '';
+
+                // Check if user email is in admin list
+                if (adminEmails.includes(userEmail.toLowerCase())) {
+                    adminCheck = true;
+                }
+
+                if (!adminCheck && accessToken) {
+                    // Check admin from access token (scopes and roles)
+                    adminCheck = isAdmin(accessToken, auth0Domain);
+                }
+
+                // Also check ID token for roles (Auth0 often puts roles in ID token)
+                if (!adminCheck && idTokenClaims) {
+                    // Extract roles from ID token claims
+                    const roles = idTokenClaims[`https://${auth0Domain}/roles`]
+                        || idTokenClaims['https://api.airline.com/roles']
+                        || idTokenClaims.roles
+                        || [];
+
+                    const roleArray = Array.isArray(roles) ? roles : (typeof roles === 'string' ? [roles] : []);
+                    adminCheck = roleArray.some(r => {
+                        const roleLower = String(r).toLowerCase();
+                        return roleLower === 'admin' || roleLower.includes('admin');
+                    });
+                }
+
+                setIsAdmin(adminCheck);
+
+                if (!adminCheck) {
+                    setError('Access Denied: You do not have admin privileges. Required: "admin" role or "admin:flights" scope');
+                } else {
+                    setError(null);
+                }
+            } catch (err) {
+                console.error('Error checking admin access:', err);
+                setIsAdmin(false);
+                setError('Error verifying admin access. Please ensure you are logged in with proper permissions.');
+            } finally {
+                setCheckingAccess(false);
+            }
+        };
+
+        checkAdminAccess();
+    }, [isAuthenticated, getIdTokenClaims]);
 
     const calculateArrivalTime = (departure, duration) => {
         if (!departure || !duration) return null;
-        
+
         const [hours, minutes] = duration.split(/[h\s]+/).filter(Boolean).map(Number);
         const totalMinutes = (hours || 0) * 60 + (minutes || 0);
         const arrival = new Date(departure);
@@ -45,7 +116,7 @@ function AdminPage() {
             ...prev,
             duration: duration
         }));
-        
+
         if (flightData.departureTime) {
             const arrival = calculateArrivalTime(flightData.departureTime, duration);
             if (arrival) {
@@ -62,7 +133,7 @@ function AdminPage() {
             ...prev,
             departureTime: date
         }));
-        
+
         if (flightData.duration) {
             const arrival = calculateArrivalTime(date, flightData.duration);
             if (arrival) {
@@ -96,9 +167,9 @@ function AdminPage() {
         setError(null);
 
         try {
-            // ML service'e prediction request gönder
-            const mlServiceUrl = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:8090';
-            
+            // ML service'e prediction request gönder (via Nginx proxy)
+            const mlServiceUrl = '/ml-api';
+
             // Calculate days left until departure
             const today = new Date();
             const departure = new Date(flightData.departureTime);
@@ -166,6 +237,7 @@ function AdminPage() {
             }));
 
         } catch (err) {
+            console.error('Prediction error:', err);
             setError('Failed to predict price. Using default calculation.');
             // Fallback: basit hesaplama
             const [hours, minutes] = flightData.duration.split(/[h\s]+/).filter(Boolean).map(Number);
@@ -221,8 +293,22 @@ function AdminPage() {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to add flight');
+                let errorMessage = 'Failed to add flight';
+                try {
+                    // Try to parse JSON error response
+                    const errorText = await response.text();
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMessage = errorData.message || errorData.error || errorMessage;
+                    } catch (e) {
+                        // If not JSON, use the text body or status text
+                        errorMessage = errorText || response.statusText || errorMessage;
+                    }
+                } catch (e) {
+                    // Fallback if reading text fails
+                    errorMessage = response.statusText;
+                }
+                throw new Error(`${response.status} ${errorMessage}`);
             }
 
             setSuccess(true);
@@ -242,13 +328,31 @@ function AdminPage() {
             setTimeout(() => setSuccess(false), 3000);
 
         } catch (err) {
+            console.error('Error saving flight:', err);
             setError(err.message || 'Failed to add flight');
         } finally {
             setLoading(false);
         }
     };
 
-    if (!isAuthenticated) {
+    if (checkingAccess) {
+        return (
+            <main>
+                <div style={{
+                    maxWidth: '600px',
+                    margin: '50px auto',
+                    padding: '40px',
+                    background: 'var(--bg-card)',
+                    borderRadius: 'var(--radius)',
+                    textAlign: 'center'
+                }}>
+                    <p style={{ color: 'var(--text-secondary)' }}>Checking access...</p>
+                </div>
+            </main>
+        );
+    }
+
+    if (!isAuthenticated || !isAdmin) {
         return (
             <main>
                 <div style={{
@@ -261,7 +365,9 @@ function AdminPage() {
                 }}>
                     <h2>Access Denied</h2>
                     <p style={{ color: 'var(--text-secondary)', marginTop: '10px' }}>
-                        Please login to access the admin panel
+                        {!isAuthenticated
+                            ? 'Please login to access the admin panel'
+                            : error || 'You do not have admin privileges to access this page'}
                     </p>
                 </div>
             </main>
@@ -368,26 +474,9 @@ function AdminPage() {
                             />
                         </div>
 
-                        {/* Price with Predict Button */}
+                        {/* Price */}
                         <div className="input-group">
-                            <label htmlFor="price" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span>Price</span>
-                                <button
-                                    type="button"
-                                    onClick={handlePredictPrice}
-                                    disabled={predicting || !flightData.fromAirport || !flightData.toAirport || !flightData.duration}
-                                    className="btn"
-                                    style={{
-                                        padding: '6px 12px',
-                                        fontSize: '0.85rem',
-                                        background: 'var(--primary)',
-                                        color: 'white',
-                                        border: 'none'
-                                    }}
-                                >
-                                    {predicting ? 'Predicting...' : 'Predict'}
-                                </button>
-                            </label>
+                            <label htmlFor="price">Price (USD)</label>
                             <input
                                 id="price"
                                 type="number"

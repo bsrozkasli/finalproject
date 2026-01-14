@@ -127,6 +127,7 @@ public class RabbitMQConfig {
 
     /**
      * Verify RabbitMQ connection on startup.
+     * Non-blocking - application will continue even if RabbitMQ is unavailable.
      */
     @Bean
     public CommandLineRunner rabbitMqConnectionVerifier(ConnectionFactory connectionFactory) {
@@ -142,15 +143,73 @@ public class RabbitMQConfig {
                     log.info("   Port: {}", connectionFactory.getPort());
                     connection.close();
                 } else {
-                    log.error("❌ RabbitMQ connection failed!");
+                    log.warn("⚠️  RabbitMQ connection check returned null or closed connection");
+                    log.warn("   The service will continue, but RabbitMQ listeners may not work");
                 }
             } catch (Exception e) {
-                log.error("❌ Failed to connect to RabbitMQ: {}", e.getMessage(), e);
-                log.error("Please check:");
-                log.error("  1. RabbitMQ is running");
-                log.error("  2. Connection settings in application.yml");
-                log.error("  3. Network connectivity");
+                log.warn("⚠️  Failed to connect to RabbitMQ: {}", e.getMessage());
+                log.warn("   The service will continue to start, but RabbitMQ features will be unavailable");
+                log.warn("   To enable RabbitMQ, please check:");
+                log.warn("     1. RabbitMQ is running (docker-compose up rabbitmq)");
+                log.warn("     2. Connection settings in application.yml");
+                log.warn("     3. Network connectivity");
+                log.warn("   This is not a fatal error - the service will continue without RabbitMQ");
             }
+            log.info("========================================");
+        };
+    }
+
+    /**
+     * Verify email configuration on startup.
+     * Non-blocking - application will continue even if email is not configured.
+     */
+    @Bean
+    public CommandLineRunner emailConfigurationVerifier(
+            @org.springframework.beans.factory.annotation.Value("${spring.mail.username:}") String mailUsername,
+            @org.springframework.beans.factory.annotation.Value("${spring.mail.password:}") String mailPassword,
+            @org.springframework.beans.factory.annotation.Value("${spring.mail.host:}") String mailHost) {
+        return args -> {
+            log.info("========================================");
+            log.info("VERIFYING EMAIL CONFIGURATION");
+            log.info("========================================");
+            
+            boolean configValid = true;
+            
+            if (mailUsername == null || mailUsername.isEmpty() || mailUsername.contains("your")) {
+                log.warn("⚠️  Email username not configured or using placeholder");
+                log.warn("   Current value: {}", mailUsername.isEmpty() ? "(empty)" : mailUsername);
+                configValid = false;
+            } else {
+                log.info("✅ Email username configured: {}", mailUsername);
+            }
+            
+            if (mailPassword == null || mailPassword.isEmpty() || mailPassword.contains("your_app_password")) {
+                log.warn("⚠️  Email password (SMTP_PASSWORD) not configured or using placeholder");
+                log.warn("   Current value: {}", mailPassword.isEmpty() ? "(empty)" : "***");
+                log.warn("   To configure email:");
+                log.warn("     1. Generate Gmail App Password: https://myaccount.google.com/apppasswords");
+                log.warn("     2. Set environment variable: SMTP_PASSWORD=your_app_password");
+                log.warn("     3. Or update application.yml (not recommended for production)");
+                configValid = false;
+            } else {
+                log.info("✅ Email password configured (SMTP_PASSWORD)");
+            }
+            
+            if (mailHost == null || mailHost.isEmpty()) {
+                log.warn("⚠️  Email host not configured");
+                configValid = false;
+            } else {
+                log.info("✅ Email host configured: {}", mailHost);
+            }
+            
+            if (configValid) {
+                log.info("✅ Email configuration appears valid");
+                log.info("   Note: Actual SMTP connection will be tested on first email send");
+            } else {
+                log.warn("⚠️  Email configuration incomplete - emails will not be sent");
+                log.warn("   The service will continue, but email features will be unavailable");
+            }
+            
             log.info("========================================");
         };
     }

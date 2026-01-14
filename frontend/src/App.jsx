@@ -6,42 +6,96 @@ import LoginPage from './pages/LoginPage';
 import BookingPage from './pages/BookingPage';
 import AdminPage from './pages/AdminPage';
 import { milesApi } from './api/flightApi';
+import { isAdmin as checkIsAdmin } from './utils/jwtUtils';
 
 function Navbar() {
-    const { isAuthenticated, user, logout, getAccessTokenSilently } = useAuth0();
+    const { isAuthenticated, user, logout, getAccessTokenSilently, getIdTokenClaims } = useAuth0();
     const navigate = useNavigate();
     const [milesBalance, setMilesBalance] = useState(null);
     const [milesLoading, setMilesLoading] = useState(false);
+    const [isUserAdmin, setIsUserAdmin] = useState(false);
+
+    // DEBUG: Check deployment version
+    useEffect(() => {
+        console.log('Frontend Version: v1.1 - Nginx Proxy Fix - ' + new Date().toISOString());
+    }, []);
 
     useEffect(() => {
-        const fetchMiles = async () => {
+        const fetchMilesAndCheckAdmin = async () => {
             if (!isAuthenticated) {
                 setMilesBalance(null);
+                setIsUserAdmin(false);
                 return;
             }
 
             setMilesLoading(true);
             try {
-                const token = await getAccessTokenSilently({
+                // Get Auth0 domain from environment (for role namespace lookup)
+                const auth0Domain = import.meta.env.VITE_AUTH0_DOMAIN?.replace('https://', '').replace('http://', '') || null;
+
+                // Get access token (scopes are usually in access token)
+                const accessToken = await getAccessTokenSilently({
                     authorizationParams: {
                         audience: 'https://api.airline.com'
                     }
                 }).catch(() => null);
-                
-                if (token) {
-                    const account = await milesApi.getAccount(token);
-                    setMilesBalance(account.balance || 0);
+
+                // Get ID token (roles are usually in ID token in Auth0)
+                const idTokenClaims = await getIdTokenClaims().catch(() => null);
+
+                let adminCheck = false;
+
+                // Admin email list - users with these emails get admin access
+                const adminEmails = ['admin@gmail.com'];
+                const userEmail = idTokenClaims?.email || '';
+
+                // Check if user email is in admin list
+                if (adminEmails.includes(userEmail.toLowerCase())) {
+                    adminCheck = true;
                 }
+
+                if (!adminCheck && accessToken) {
+                    // Check admin from access token (scopes and roles)
+                    adminCheck = checkIsAdmin(accessToken, auth0Domain);
+                }
+
+                if (accessToken) {
+                    // Fetch miles balance
+                    try {
+                        const account = await milesApi.getAccount(accessToken);
+                        setMilesBalance(account.balance || 0);
+                    } catch (e) {
+                        console.warn('Could not fetch miles:', e);
+                    }
+                }
+
+                // Also check ID token for roles (Auth0 often puts roles in ID token)
+                if (!adminCheck && idTokenClaims) {
+                    // Extract roles from ID token claims
+                    const roles = idTokenClaims[`https://${auth0Domain}/roles`]
+                        || idTokenClaims['https://api.airline.com/roles']
+                        || idTokenClaims.roles
+                        || [];
+
+                    const roleArray = Array.isArray(roles) ? roles : (typeof roles === 'string' ? [roles] : []);
+                    adminCheck = roleArray.some(r => {
+                        const roleLower = String(r).toLowerCase();
+                        return roleLower === 'admin' || roleLower.includes('admin');
+                    });
+                }
+
+                setIsUserAdmin(adminCheck);
             } catch (err) {
-                console.warn('Could not fetch miles balance:', err);
+                console.warn('Could not fetch miles balance or check admin status:', err);
                 setMilesBalance(null);
+                setIsUserAdmin(false);
             } finally {
                 setMilesLoading(false);
             }
         };
 
-        fetchMiles();
-    }, [isAuthenticated, getAccessTokenSilently]);
+        fetchMilesAndCheckAdmin();
+    }, [isAuthenticated, getAccessTokenSilently, getIdTokenClaims]);
 
     const handleLogout = () => {
         logout({ returnTo: window.location.origin });
@@ -59,10 +113,10 @@ function Navbar() {
                 <Link to="/">Search Flights</Link>
                 {isAuthenticated && (
                     <>
-                        <Link to="/admin">Admin</Link>
+                        {isUserAdmin && <Link to="/admin">Admin</Link>}
                         {milesBalance !== null && (
-                            <span style={{ 
-                                color: 'var(--primary)', 
+                            <span style={{
+                                color: 'var(--primary)',
                                 fontWeight: '600',
                                 padding: '4px 12px',
                                 background: 'rgba(99, 102, 241, 0.1)',
@@ -91,11 +145,81 @@ function Navbar() {
     );
 }
 
+function AuthErrorHandler() {
+    const { error, isLoading } = useAuth0();
+    const [urlError, setUrlError] = useState(null);
+
+    useEffect(() => {
+        // Check for error in URL (Auth0 callback errors)
+        const params = new URLSearchParams(window.location.search);
+        const errorParam = params.get('error');
+        const errorDescription = params.get('error_description');
+
+        if (errorParam) {
+            setUrlError({
+                error: errorParam,
+                description: errorDescription || 'Authentication failed'
+            });
+            // Clear the error from URL without refreshing
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }, []);
+
+    if (isLoading) {
+        return (
+            <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                height: '200px',
+                color: 'var(--text-secondary)'
+            }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div className="loading-spinner" style={{ margin: '0 auto 16px' }}></div>
+                    <p>Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error || urlError) {
+        const displayError = error || urlError;
+        return (
+            <div style={{
+                padding: '20px',
+                margin: '20px',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '12px',
+                color: '#ef4444'
+            }}>
+                <h3 style={{ margin: '0 0 8px 0' }}>⚠️ Authentication Error</h3>
+                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                    {displayError.description || displayError.message || 'An error occurred during authentication.'}
+                </p>
+                <button
+                    onClick={() => {
+                        setUrlError(null);
+                        window.location.href = '/';
+                    }}
+                    className="btn btn-primary"
+                    style={{ marginTop: '16px' }}
+                >
+                    Try Again
+                </button>
+            </div>
+        );
+    }
+
+    return null;
+}
+
 function App() {
     return (
         <Router>
             <div className="container">
                 <Navbar />
+                <AuthErrorHandler />
                 <Routes>
                     <Route path="/" element={<SearchPage />} />
                     <Route path="/login" element={<LoginPage />} />

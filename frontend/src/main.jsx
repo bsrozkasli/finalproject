@@ -10,7 +10,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             domain={import.meta.env.VITE_AUTH0_DOMAIN || "your-auth0-domain"}
             clientId={import.meta.env.VITE_AUTH0_CLIENT_ID || "your-auth0-client-id"}
             authorizationParams={{
-                redirect_uri: window.location.origin
+                redirect_uri: window.location.origin,
+                audience: "https://api.airline.com"
+            }}
+            cacheLocation="localstorage"
+            onRedirectCallback={(appState) => {
+                // Handle redirect after login if needed
+                if (appState?.returnTo) {
+                    window.location.href = appState.returnTo;
+                }
             }}
         >
             <App />

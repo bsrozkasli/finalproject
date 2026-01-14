@@ -11,7 +11,7 @@ services:
     environment:
       POSTGRES_DB: airline
       POSTGRES_USER: airline
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_db_password_here}
+      POSTGRES_PASSWORD: your_db_password_here
     ports:
       - "5432:5432"
     volumes:
@@ -90,7 +90,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
       SPRING_DATASOURCE_USERNAME: airline
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-your_db_password_here}
+      SPRING_DATASOURCE_PASSWORD: your_db_password_here
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: guest
@@ -99,6 +99,7 @@ services:
       REDIS_PORT: 6379
       ML_SERVICE_URL: http://ml-service:8090
       SPRING_PROFILES_ACTIVE: docker
+      AUTH0_ISSUER_URI: https://dev-hx3uz6xwsebz3v0b.us.auth0.com/
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,6 +109,12 @@ services:
         condition: service_healthy
       ml-service:
         condition: service_started
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     networks:
       - airline-network
 
@@ -123,6 +130,8 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: guest
       RABBITMQ_PASSWORD: guest
+      SMTP_USERNAME: basarrozkas@gmail.com
+      SMTP_PASSWORD: eyumehwbcsygehaw
       SPRING_PROFILES_ACTIVE: docker
     depends_on:
       rabbitmq:
@@ -140,20 +149,21 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
       SPRING_DATASOURCE_USERNAME: airline
-      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-your_db_password_here}
+      SPRING_DATASOURCE_PASSWORD: your_db_password_here
       FLIGHT_SERVICE_URL: http://flight-service:8081
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: guest
       RABBITMQ_PASSWORD: guest
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_MAIL_PASSWORD: eyumehwbcsygehaw
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
       flight-service:
-        condition: service_started
+        condition: service_healthy
     networks:
       - airline-network
 
@@ -186,6 +196,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_AUTH0_DOMAIN: dev-hx3uz6xwsebz3v0b.us.auth0.com
+        VITE_AUTH0_CLIENT_ID: fd7zsjFxDwwBbr97qf2C0Is2vY7grakZ
     container_name: airline-frontend
     ports:
       - "3000:80"
