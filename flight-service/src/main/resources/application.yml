@@ -1,0 +1,90 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: flight-service
+
+  # PostgreSQL Database
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/airline}
+    username: ${SPRING_DATASOURCE_USERNAME:airline}
+    password: ${SPRING_DATASOURCE_PASSWORD:your_db_password_here}
+    driver-class-name: org.postgresql.Driver
+    # HikariCP Connection Pool Configuration
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+      pool-name: AirlineHikariCP
+
+  # JPA/Hibernate
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  # Flyway Migrations
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # RabbitMQ
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+  # Redis Cache
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  # Security - Auth0 (Mock/Placeholder Configuration)
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Replace with your Auth0 issuer URI
+          issuer-uri: ${AUTH0_ISSUER_URI:https://your-tenant.example.com/}
+          # For development, you can use the following configuration
+          # jwk-set-uri: ${AUTH0_JWK_SET_URI:}
+
+# Cache configuration
+spring.cache:
+  type: redis
+  redis:
+    time-to-live: 600000 # 10 minutes
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+# Logging
+logging:
+  level:
+    com.airline.flight: DEBUG
+    org.springframework.security: DEBUG
+
+# ML Service for Price Prediction
+ml:
+  service:
+    url: ${ML_SERVICE_URL:http://localhost:8090}
+    enabled: ${ML_SERVICE_ENABLED:true}
+

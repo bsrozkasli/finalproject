@@ -1,0 +1,123 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      # Global CORS Configuration
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins:
+              - "http://localhost:3000"
+              - "http://localhost:5173"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowed-headers: "*"
+            allow-credentials: true
+
+      # Routes Configuration
+      routes:
+        # Flight Service Routes
+        - id: flight-service
+          uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/flights/**
+          filters:
+#            - name: CircuitBreaker
+#              args:
+#                name: flightServiceCB
+#                fallbackUri: forward:/fallback/flight
+
+        # Airport Routes
+        - id: airport-service
+          uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/airports/**
+
+        # Booking Routes
+        - id: booking-service
+          uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/bookings/**
+#          filters:
+#            - name: CircuitBreaker
+#              args:
+#                name: bookingServiceCB
+#                fallbackUri: forward:/fallback/booking
+
+        # Miles Routes
+        - id: miles-service
+          uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/miles/**
+
+        # Partner Routes
+        - id: partner-service
+          uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/partners/**
+
+        # Admin Routes
+        - id: admin-service
+          uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/admin/**
+
+        # Notification Service Routes
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/notifications/**
+
+        # Scheduler Service Routes
+        - id: scheduler-service
+          uri: ${SCHEDULER_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/scheduler/**
+
+  # Redis for Rate Limiting
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+# Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+    instances:
+      flightServiceCB:
+        baseConfig: default
+      bookingServiceCB:
+        baseConfig: default
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: always
+
+# Logging
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    reactor.netty: INFO

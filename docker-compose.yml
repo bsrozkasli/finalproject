@@ -1,0 +1,212 @@
+version: '3.8'
+
+services:
+  # =====================================================
+  # INFRASTRUCTURE SERVICES
+  # =====================================================
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: airline-postgres
+    environment:
+      POSTGRES_DB: airline
+      POSTGRES_USER: airline
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_db_password_here}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U airline -d airline" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - airline-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: airline-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672" # AMQP
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - airline-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: airline-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - airline-network
+
+  # =====================================================
+  # APPLICATION SERVICES
+  # =====================================================
+
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: airline-ml-service
+    ports:
+      - "8090:8090"
+    volumes:
+      - ml_models:/app/models
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - airline-network
+
+  flight-service:
+    build:
+      context: ./flight-service
+      dockerfile: Dockerfile
+    container_name: airline-flight-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
+      SPRING_DATASOURCE_USERNAME: airline
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-your_db_password_here}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ML_SERVICE_URL: http://ml-service:8090
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    networks:
+      - airline-network
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: airline-notification-service
+    ports:
+      - "8082:8082"
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - airline-network
+
+  scheduler-service:
+    build:
+      context: ./scheduler-service
+      dockerfile: Dockerfile
+    container_name: airline-scheduler-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
+      SPRING_DATASOURCE_USERNAME: airline
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-your_db_password_here}
+      FLIGHT_SERVICE_URL: http://flight-service:8081
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      flight-service:
+        condition: service_started
+    networks:
+      - airline-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: airline-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      FLIGHT_SERVICE_URL: http://flight-service:8081
+      NOTIFICATION_SERVICE_URL: http://notification-service:8082
+      SCHEDULER_SERVICE_URL: http://scheduler-service:8083
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - flight-service
+      - notification-service
+      - redis
+    networks:
+      - airline-network
+  # =====================================================
+  # FRONTEND (Optional - Comment out if not needed)
+  # =====================================================
+
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: airline-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - airline-network
+  # =====================================================
+  # NETWORKS
+  # =====================================================
+networks:
+  airline-network:
+    driver: bridge
+
+# =====================================================
+# VOLUMES
+# =====================================================
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+  ml_models:
+
+

@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # Veritabanı ve Altyapı
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: airline
+      POSTGRES_USER: airline
+      POSTGRES_PASSWORD: airline123
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  redis:
+    image: redis:7-alpine
+
+  # Mikroservisler (ACR'den geliyor)
+  ml-service:
+    image: airlineproject.azurecr.io/ml-service:demo
+
+  flight-service:
+    image: airlineproject.azurecr.io/flight-service:demo
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
+      SPRING_DATASOURCE_USERNAME: airline
+      SPRING_DATASOURCE_PASSWORD: airline123
+      RABBITMQ_HOST: rabbitmq
+      REDIS_HOST: redis
+      ML_SERVICE_URL: http://ml-service:8090
+      SPRING_PROFILES_ACTIVE: docker
+
+  notification-service:
+    image: airlineproject.azurecr.io/notification-service:demo
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      SPRING_PROFILES_ACTIVE: docker
+
+  scheduler-service:
+    image: airlineproject.azurecr.io/scheduler-service:demo
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline
+      FLIGHT_SERVICE_URL: http://flight-service:8081
+      RABBITMQ_HOST: rabbitmq
+      SPRING_PROFILES_ACTIVE: docker
+
+  api-gateway:
+    image: airlineproject.azurecr.io/api-gateway:demo
+    environment:
+      FLIGHT_SERVICE_URL: http://flight-service:8081
+      NOTIFICATION_SERVICE_URL: http://notification-service:8082
+      SCHEDULER_SERVICE_URL: http://scheduler-service:8083
+      REDIS_HOST: redis
+      SPRING_PROFILES_ACTIVE: docker
+
+  frontend:
+    image: airlineproject.azurecr.io/frontend:demo
+    ports:
+      - "80:80" # Azure bu servisi dışarı açacak
+    depends_on:
+      - api-gateway
