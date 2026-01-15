@@ -169,26 +169,68 @@ public class PricePredictionService {
 
     /**
      * Fallback price calculation when ML service is unavailable.
+     * Uses distance-based pricing with various multipliers.
      */
     private BigDecimal calculateFallbackPrice(Flight flight) {
-        BigDecimal predictedPrice = flight.getPrice();
-
-        // Apply duration factor
+        // Base price calculation based on duration (proxy for distance)
         long durationMinutes = flight.getDurationMinutes();
-        BigDecimal durationAdjustment = DURATION_FACTOR.multiply(BigDecimal.valueOf(durationMinutes / 60.0));
-        predictedPrice = predictedPrice.add(durationAdjustment);
+
+        // Base rate: $2-4 per minute of flight depending on route
+        double baseRatePerMinute = getBaseRateForRoute(flight.getFromAirport(), flight.getToAirport());
+        BigDecimal basePrice = BigDecimal.valueOf(durationMinutes * baseRatePerMinute);
+
+        // Minimum price floor
+        if (basePrice.compareTo(BigDecimal.valueOf(50)) < 0) {
+            basePrice = BigDecimal.valueOf(50);
+        }
 
         // Apply weekend multiplier
         if (isWeekend(flight)) {
-            predictedPrice = predictedPrice.multiply(WEEKEND_MULTIPLIER);
+            basePrice = basePrice.multiply(WEEKEND_MULTIPLIER);
         }
 
         // Apply high demand multiplier
         if (isHighDemand(flight)) {
-            predictedPrice = predictedPrice.multiply(HIGH_DEMAND_MULTIPLIER);
+            basePrice = basePrice.multiply(HIGH_DEMAND_MULTIPLIER);
         }
 
-        return predictedPrice.setScale(2, RoundingMode.HALF_UP);
+        // Days left factor - closer flights are more expensive
+        long daysLeft = ChronoUnit.DAYS.between(
+                java.time.LocalDate.now(),
+                flight.getDepartureTime().toLocalDate());
+        if (daysLeft < 7) {
+            basePrice = basePrice.multiply(BigDecimal.valueOf(1.25)); // 25% more for last week
+        } else if (daysLeft < 14) {
+            basePrice = basePrice.multiply(BigDecimal.valueOf(1.10)); // 10% more for 2nd last week
+        }
+
+        return basePrice.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Get base rate per minute based on route type.
+     */
+    private double getBaseRateForRoute(String from, String to) {
+        // International long-haul routes
+        if (isLongHaulRoute(from, to)) {
+            return 2.5; // Higher rate for long flights
+        }
+        // European routes
+        if (isEuropeanRoute(from, to)) {
+            return 1.8;
+        }
+        // Default domestic/short-haul
+        return 1.5;
+    }
+
+    private boolean isLongHaulRoute(String from, String to) {
+        // Routes involving US airports
+        return from.equals("JFK") || from.equals("LAX") || to.equals("JFK") || to.equals("LAX");
+    }
+
+    private boolean isEuropeanRoute(String from, String to) {
+        java.util.Set<String> europeanAirports = java.util.Set.of("LHR", "CDG", "FRA", "AMS", "IST");
+        return europeanAirports.contains(from) && europeanAirports.contains(to);
     }
 
     /**
