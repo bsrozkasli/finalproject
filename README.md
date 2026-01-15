@@ -81,104 +81,29 @@ graph TD
 
 ## 🚦 Quick Start
 
-### Prerequisites
-- **Java 17+** (JDK 17 or higher)
-- **Maven 3.8+**
-- **Docker & Docker Compose** (for infrastructure services)
-- **Node.js 18+** and **npm** (for frontend)
-- **PostgreSQL 15** (or use Docker)
-- **RabbitMQ** (or use Docker)
-- **Redis** (or use Docker)
-
 ### 1. Infrastructure Setup
 ```bash
 # Spin up DB, RabbitMQ and Redis
 docker-compose up -d postgres rabbitmq redis
-
-# Verify services are running
-docker ps
 ```
 
-**Expected Services:**
-- PostgreSQL: `localhost:5432`
-- RabbitMQ: `localhost:5672` (Management UI: `http://localhost:15672`)
-- Redis: `localhost:6379`
-
-### 2. Database Configuration
-Before starting services, ensure your database credentials match:
-
-**Default Configuration:**
-- Database: `airline`
-- Username: `airline`
-- Password: Set via environment variable `SPRING_DATASOURCE_PASSWORD` or update `application.yml`
-
-**To set password:**
+### 2. Backend Build
 ```bash
-# Windows PowerShell
-$env:SPRING_DATASOURCE_PASSWORD="your_password_here"
-
-# Linux/Mac
-export SPRING_DATASOURCE_PASSWORD="your_password_here"
-```
-
-### 3. Backend Build
-```bash
-# From root directory - Build all services
+# From root directory
 mvn clean package -DskipTests
-
-# Or build individual services
-cd flight-service && mvn clean package -DskipTests
-cd scheduler-service && mvn clean package -DskipTests
-cd api-gateway && mvn clean package -DskipTests
 ```
 
-### 4. Running Services
-
-**Option A: Using Maven (Development)**
+### 3. Running Services
 ```bash
-# Terminal 1 - Flight Service
-cd flight-service
-mvn spring-boot:run
-
-# Terminal 2 - Scheduler Service
-cd scheduler-service
-mvn spring-boot:run
-
-# Terminal 3 - API Gateway
-cd api-gateway
-mvn spring-boot:run
+# Start microservices (separate terminals or background)
+cd flight-service && mvn spring-boot:run
+cd api-gateway && mvn spring-boot:run
+cd scheduler-service && mvn spring-boot:run
 ```
 
-**Option B: Using Docker Compose (Production-like)**
+### 4. Frontend Start
 ```bash
-# Start all services including infrastructure
-docker-compose up --build
-
-# Or start specific services
-docker-compose up flight-service scheduler-service api-gateway
-```
-
-**Service Ports:**
-- API Gateway: `http://localhost:8080`
-- Flight Service: `http://localhost:8081`
-- Notification Service: `http://localhost:8082`
-- Scheduler Service: `http://localhost:8083`
-
-### 5. Frontend Start
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Frontend will be available at: `http://localhost:3000` (or the port shown in terminal)
-
-### 6. Verify Services
-```bash
-# Health checks
-curl http://localhost:8080/api/v1/flights/health
-curl http://localhost:8081/api/v1/flights/health
-curl http://localhost:8083/api/v1/scheduler/health
+cd frontend && npm install && npm run dev
 ```
 
 ---
@@ -204,176 +129,9 @@ Authorization: Bearer <auth0-jwt>
 ---
 
 ## 📈 Demo & Verification
-
-### Health Check Endpoints
-- **API Gateway**: `GET http://localhost:8080/api/v1/flights/health`
-- **Flight Service**: `GET http://localhost:8081/api/v1/flights/health`
-- **Scheduler Service**: `GET http://localhost:8083/api/v1/scheduler/health`
-- **Scheduler Status**: `GET http://localhost:8083/api/v1/scheduler/status`
-
-### Test Scripts
 You can use the built-in test scripts for direct verification:
 - `test-scripts/test-auth.ps1`: Validates the Auth0 handshake.
 - `test-email-direct.ps1`: Verifies the SMTP/Email relay status.
-- `test-scripts/test-email.ps1`: Tests email sending functionality.
-
-### Manual Testing
-
-**1. Test Email Sending (Scheduler Service)**
-```bash
-# Send a test email
-curl "http://localhost:8083/api/v1/scheduler/test/email?to=your-email@example.com"
-```
-
-**2. Trigger Flight Status Job Manually**
-```bash
-# Manually trigger the nightly flight status update job
-curl -X POST http://localhost:8083/api/v1/scheduler/jobs/flight-status/trigger
-```
-
-**3. Check RabbitMQ Management UI**
-- Open: `http://localhost:15672`
-- Login: `guest` / `guest`
-- Check queues: `email.queue` should be visible
-
-## 🔧 Configuration
-
-### Environment Variables
-
-**Database:**
-- `SPRING_DATASOURCE_URL`: PostgreSQL connection string
-- `SPRING_DATASOURCE_USERNAME`: Database username
-- `SPRING_DATASOURCE_PASSWORD`: Database password
-
-**RabbitMQ:**
-- `RABBITMQ_HOST`: RabbitMQ host (default: `localhost`)
-- `RABBITMQ_PORT`: RabbitMQ port (default: `5672`)
-- `RABBITMQ_USERNAME`: RabbitMQ username (default: `guest`)
-- `RABBITMQ_PASSWORD`: RabbitMQ password (default: `guest`)
-
-**Email (Gmail SMTP):**
-- `SMTP_PASSWORD`: Gmail App Password (required for email sending)
-- Configure in `application.yml` under `spring.mail.username`
-
-**Service URLs:**
-- `FLIGHT_SERVICE_URL`: Flight service base URL (default: `http://localhost:8081`)
-
-### Application Properties
-
-Each service has its own `application.yml`:
-- `flight-service/src/main/resources/application.yml`
-- `scheduler-service/src/main/resources/application.yml`
-- `api-gateway/src/main/resources/application.yml`
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**1. Scheduler Service Crashes on Startup**
-- **Cause**: RabbitMQ connection failure
-- **Solution**: The service now gracefully handles RabbitMQ unavailability. Check logs for warnings.
-- **Fix**: Ensure RabbitMQ is running: `docker-compose up -d rabbitmq`
-
-**2. Database Connection Errors**
-- **Cause**: PostgreSQL not running or wrong credentials
-- **Solution**: 
-  ```bash
-  docker-compose up -d postgres
-  # Verify connection
-  docker exec -it airline-postgres psql -U airline -d airline
-  ```
-
-**3. Email Sending Fails**
-- **Cause**: Missing or incorrect Gmail App Password
-- **Solution**: 
-  1. Generate Gmail App Password: https://myaccount.google.com/apppasswords
-  2. Set environment variable: `$env:SMTP_PASSWORD="your_app_password"`
-  3. Or update `application.yml` directly
-
-**4. Port Already in Use**
-- **Cause**: Another service is using the port
-- **Solution**: 
-  ```bash
-  # Windows - Find process using port
-  netstat -ano | findstr :8083
-  # Kill process (replace PID)
-  taskkill /PID <PID> /F
-  ```
-
-**5. RabbitMQ Queue Not Created**
-- **Cause**: RabbitMQ listener not properly configured
-- **Solution**: Check scheduler-service logs for queue creation messages. The service auto-creates queues on startup.
-
-## 📚 Service Details
-
-### Scheduler Service (`scheduler-service`)
-
-**Purpose**: Handles scheduled batch jobs and event-driven email notifications.
-
-**Key Features:**
-- **Flight Status Updates**: Nightly job (midnight) to mark completed flights and award miles
-- **Email Notifications**: Listens to RabbitMQ for booking events and sends confirmation emails
-- **Miles&Smiles Integration**: Automatically awards miles when flights are completed
-- **Tier Management**: Updates member tiers (Bronze, Silver, Gold, Platinum) based on miles balance
-
-**Scheduled Jobs:**
-- `FlightStatusJob`: Runs daily at `0 0 0 * * ?` (midnight)
-  - Updates flight statuses from `SCHEDULED` to `COMPLETED`
-  - Awards miles to passengers
-  - Sends miles update emails
-
-**API Endpoints:**
-- `GET /api/v1/scheduler/health` - Health check
-- `GET /api/v1/scheduler/status` - Service status and job information
-- `POST /api/v1/scheduler/jobs/flight-status/trigger` - Manually trigger flight status job
-- `GET /api/v1/scheduler/test/email?to=<email>` - Test email sending
-
-**Dependencies:**
-- PostgreSQL (for bookings, flights, miles accounts)
-- RabbitMQ (for booking events)
-- Gmail SMTP (for email sending)
-
-### Flight Service (`flight-service`)
-
-**Purpose**: Core business logic for flights, bookings, and pricing.
-
-**Key Features:**
-- Flight search and filtering
-- Multi-passenger booking
-- Dynamic pricing calculation
-- Publishes `BookingCreatedEvent` to RabbitMQ
-
-### API Gateway (`api-gateway`)
-
-**Purpose**: Single entry point for all client requests.
-
-**Key Features:**
-- Request routing to appropriate microservices
-- CORS handling
-- Rate limiting (via Redis)
-- Centralized authentication
-
-### Notification Service (`notification-service`)
-
-**Purpose**: Handles real-time notifications via RabbitMQ events.
-
-**Key Features:**
-- Listens to booking events
-- Sends email notifications
-- Event-driven architecture
-
-## 🏃 Running in IntelliJ IDEA
-
-For detailed instructions on running this project in IntelliJ IDEA, see [INTELLIJ_DEMO_GUIDE.md](INTELLIJ_DEMO_GUIDE.md).
 
 ---
 
-## 📝 License
-Distributed under the MIT License. See `LICENSE` for more information.
-#   f i n a l p r o j e c t 
- 
- 
- 
- #   L a s t   S e c r e t   U p d a t e :   0 1 / 1 4 / 2 0 2 6   1 8 : 0 8 : 3 7 
- 
- 
